@@ -1,0 +1,8 @@
+#default files and folders to ignore
+/dist
+/images
+/linux.egg-info
+/containers
+/tests
+/build
+/bb3venv
