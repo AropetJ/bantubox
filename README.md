@@ -63,3 +63,18 @@ Other commands in the future will include:
 stop to stop a running container
 list to list available containers
 ```
+
+## Strategy
+
+We will want bantubox to have features closely similar to those from Docker, so I followed the following developmet steps:
+
+1. Practiced the usage of fork and exec system calls
+2. Used chroot to jail a process in the container
+3. Mounting namespaces to start process isolation
+4. Used pivot root to replace chroot as it's more effective
+5. To reduce launch speeds, I implemented an overlay filesystem
+6. Changed the container's hostname to it's ID using the UTS namespace
+7. We then use the unshare sys call to isolate the container and it's processes
+8. Followed by enabling networking tools like ps, ifconfig using the net namespace
+9. We then implement cgroups for resource utilization control
+10. Future features will include stopping and listing of available containers
