@@ -1,7 +1,7 @@
 
 # BantuBox
 
-BantuBox is a simplified Docker-like application for running Linux containers. It allows users to encapsulate processes and run them in isolated environments, similar to how Docker operates.
+BantuBox is a simplified and educational exploration of containerization technology, presenting a user-friendly alternative to Docker. Developed entirely in Python, the implementation leverages kernel Namespaces, cgroups, and network namespaces specific to Linux. To overcome the limitations of the python os module for Linux system calls, we enhance functionality by creating wrappers using the C language, which are then imported as modules in our project. The project's focus is not to replicate Docker comprehensively but rather to establish a foundational model that adequately elucidates the fundamental principles of container technology.
 
 ## Color Reference
 
