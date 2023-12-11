@@ -42,7 +42,6 @@ class ContainerManager:
             container_id (str): The ID of the container.
             container_dir (str): The directory to store the container data.
 
-
         Returns:
             str: The path to the container's root filesystem.
         """
