@@ -13,6 +13,8 @@ import tarfile #extracting the image tarball file
 import stat
 import click #command line utility
 import linux #linux sys call wrappers
+import shutil
+import signal
 
 #Creates a directory path for the image, we shall use this to create a container
 def _get_image_path(image_name, image_dir, image_suffix='tar'): # Declares the function
@@ -117,7 +119,7 @@ def contain(command, image_name, image_dir, container_id, container_dir, cpu_sha
 
     new_root = create_container_root(
         image_name, image_dir, container_id, container_dir)
-    # print('Created a new root fs for our container: {}'.format(new_root))
+    print('Created a new root fs for our container: {}'.format(new_root))
 
     _create_mounts(new_root)
 
@@ -126,6 +128,11 @@ def contain(command, image_name, image_dir, container_id, container_dir, cpu_sha
     linux.pivot_root(new_root, old_root)
 
     os.chdir('/')
+
+    # Store the container PID in a file
+    pid_file_path = os.path.join(container_dir, container_id, 'pid.txt')
+    with open(pid_file_path, 'w') as pid_file:
+        pid_file.write(str(os.getpid()))  # Write the PID of the container process
 
     linux.umount2('/old_root', linux.MNT_DETACH)  # umount old root
     os.rmdir('/old_root')  # rmdir the old_root dir
@@ -155,17 +162,82 @@ def run(cpu_shares, image_name, image_dir, container_dir, command):
     print(f"{wait_pid} exited with status {status}") #Print the exit status
 
 
-#The command line utility for stopping a running container
+# The command line utility for stopping a running container
 @cli.command(context_settings=dict(ignore_unknown_options=True))
 @click.argument('container_id', required=True, nargs=-1)
 def stop(container_id):
-    print(f"Stopping container: {container_id}")
+    container_dir = '/home/aropet/bantubox/containers'  # Adjust the path to your container directory
+    
+    for cid in container_id:
+        container_path = os.path.join(container_dir, cid)
+        
+        pid_file_path = os.path.join(container_path, 'pid.txt')
+        
+        if os.path.exists(pid_file_path):
+            with open(pid_file_path, 'r') as pid_file:
+                container_pid = int(pid_file.read())
+            
+            try:
+                # Send a signal to the container process to stop (use the appropriate signal)
+                os.kill(container_pid, signal.SIGTERM)  # Replace SIGTERM with the appropriate signal
+                print(f"Sent SIGTERM to container {cid} (PID: {container_pid})")
+            except ProcessLookupError:
+                print(f"Container {cid} process not found.")
+
+            # Add additional cleanup logic here (e.g., remove container directory)
+            # Cleanup logic might involve unmounting filesystems, removing directories, etc.
+            # Remove container directory
+            shutil.rmtree(container_path)
+            
+            print(f"Container {cid} stopped and deleted.")
+        else:
+            print(f"Container {cid} not found.")
 
 
 #The command line utility for listing all available containers
 @cli.command(name='list')
 def list_containers():
-    print("These are the available containers: ")
+    container_dir = '/home/aropet/bantubox/containers'  # Adjust the path to your container directory
+    containers = [container for container in os.listdir(container_dir) if os.path.isdir(os.path.join(container_dir, container))]
+    
+    if not containers:
+        print("No containers available.")
+    else:
+        print("Available containers:")
+        for container in containers:
+            print(f"- {container}")
+
+
+# The command line utility for deleting a container
+@cli.command(context_settings=dict(ignore_unknown_options=True))
+@click.argument('container_id', required=True, nargs=-1)
+def delete(container_id):
+    container_dir = '/home/aropet/bantubox/containers'  # Adjust the path to your container directory
+    
+    for cid in container_id:
+        container_path = os.path.join(container_dir, cid)
+        
+        pid_file_path = os.path.join(container_path, 'pid.txt')
+        
+        if os.path.exists(pid_file_path):
+            with open(pid_file_path, 'r') as pid_file:
+                container_pid = int(pid_file.read())
+            
+            try:
+                # Send a signal to the container process to stop (use the appropriate signal)
+                os.kill(container_pid, signal.SIGTERM)  # Replace SIGTERM with the appropriate signal
+                print(f"Sent SIGTERM to container {cid} (PID: {container_pid})")
+            except ProcessLookupError:
+                print(f"Container {cid} process not found.")
+
+            # Add additional cleanup logic here (e.g., remove container directory)
+            # Cleanup logic might involve unmounting filesystems, removing directories, etc.
+            # Remove container directory
+            shutil.rmtree(container_path)
+            
+            print(f"Container {cid} deleted.")
+        else:
+            print(f"Container {cid} not found.")
 
 
 if __name__ == "__main__":

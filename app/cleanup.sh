@@ -12,6 +12,6 @@ while $(grep -q bantubox /proc/mounts); do
 done
 
 # remove stuff
-sudo rm -rf /bantubox/containers/*
+sudo rm -rf /home/aropet/bantubox/containers/*
 
 popd
