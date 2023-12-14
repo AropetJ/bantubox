@@ -33,24 +33,30 @@ import uuid  # Unique container ids
 import click  # Command line utility
 import linux  # Linux sys call wrappers
 
+
 def _get_image_path(image_name, image_dir, image_suffix='tar'):
     """
     Construct the full file path for a given container image.
 
     Args:
-    - image_name (str): The name of the image.
-    - image_dir (str): The directory where images are stored.
-    - image_suffix (str, optional): The file extension for the image, default 'tar'.
+        image_name (str): The name of the image.
+        image_dir (str): The directory where images are stored.
+        image_suffix (str, optional): The file extension for the image, default 'tar'.
 
     Returns:
-    - str: The path to the image file.
+        str: The path to the image file.
 
     Raises:
-    - FileNotFoundError: If the specified image directory does not exist.
+        FileNotFoundError: If the specified image directory does not exist.
     """
+    
+    # Check if the directory where images are stored exists
     if not os.path.exists(image_dir):
+        # If the directory does not exist, raise a FileNotFoundError
         raise FileNotFoundError(f"Image directory '{image_dir}' does not exist.")
 
+    # Construct and return the full file path of the image
+    # os.path.join is used to ensure the path is correctly formatted for the operating system
     return os.path.join(image_dir, f"{image_name}.{image_suffix}")
 
 
@@ -59,19 +65,25 @@ def _get_container_path(container_id, container_dir, *subdir_names):
     Construct a directory path for a created container.
 
     Args:
-    - container_id (str): Unique identifier for the container.
-    - container_dir (str): Base directory for storing container data.
-    - subdir_names (str): Subdirectories within the container's directory.
+        container_id (str): Unique identifier for the container.
+        container_dir (str): Base directory for storing container data.
+        subdir_names (tuple): Variable number of subdirectory names within the container's directory.
 
     Returns:
-    - str: The path to the container's directory.
+        str: The path to the container's directory.
     
     Raises:
-    - FileNotFoundError: If the container base directory does not exist.
+        FileNotFoundError: If the container base directory does not exist.
     """
+    
+    # Verify if the base directory for storing container data exists
     if not os.path.exists(container_dir):
+        # Raise an exception if the base directory is not found
         raise FileNotFoundError(f"Container base directory '{container_dir}' does not exist.")
 
+    # Construct and return the full path to the container's directory
+    # Using os.path.join ensures correct path formatting and concatenation
+    # The use of *subdir_names allows for a flexible number of subdirectories
     return os.path.join(container_dir, container_id, *subdir_names)
 
 
@@ -80,42 +92,53 @@ def create_container_root(image_name, image_dir, container_id, container_dir):
     Create a root directory for a container and set up its filesystem.
 
     Args:
-    - image_name (str): Name of the container image.
-    - image_dir (str): Directory where container images are stored.
-    - container_id (str): Unique identifier for the container.
-    - container_dir (str): Directory for storing container-related files.
+        image_name (str): Name of the container image.
+        image_dir (str): Directory where container images are stored.
+        container_id (str): Unique identifier for the container.
+        container_dir (str): Directory for storing container-related files.
 
     Returns:
-    - str: Path to the container's root filesystem.
+        str: Path to the container's root filesystem.
 
     Raises:
-    - FileNotFoundError: If the image file does not exist.
-    - OSError: If directory creation or file extraction fails.
+        FileNotFoundError: If the image file does not exist.
+        OSError: If directory creation or file extraction fails.
     """
+    # Retrieve the full path to the specified container image
     image_path = _get_image_path(image_name, image_dir)
+    # Create a path for the root filesystem of the image
     image_root = os.path.join(image_dir, image_name, 'rootfs')
 
+    # Check if the image file exists at the specified path
     if not os.path.exists(image_path):
+        # Raise an error if the image file is not found
         raise FileNotFoundError(f"Unable to locate image {image_name}")
 
+    # If the image root directory doesn't exist, create it and extract the image
     if not os.path.exists(image_root):
-        os.makedirs(image_root)
+        os.makedirs(image_root)  # Create the root filesystem directory
+        # Open the tarball image file
         with tarfile.open(image_path) as tar:
+            # Filter out character and block device files from the tarball
             members = [m for m in tar.getmembers() if m.type not in (tarfile.CHRTYPE, tarfile.BLKTYPE)]
+            # Extract the filtered files into the root filesystem directory
             tar.extractall(image_root, members=members)
 
-    # Create directories for copy-on-write, overlay workdir, and a mount point
-    container_cow_rw = _get_container_path(container_id, container_dir, 'cow_rw')
-    container_cow_workdir = _get_container_path(container_id, container_dir, 'cow_workdir')
-    container_rootfs = _get_container_path(container_id, container_dir, 'rootfs')
+    # Create directories for the overlay filesystem components
+    container_cow_rw = _get_container_path(container_id, container_dir, 'cow_rw')  # Copy-on-write directory
+    container_cow_workdir = _get_container_path(container_id, container_dir, 'cow_workdir')  # Overlay work directory
+    container_rootfs = _get_container_path(container_id, container_dir, 'rootfs')  # Mount point for the overlay
 
+    # Ensure these directories exist, creating them if necessary
     for directory in [container_cow_rw, container_cow_workdir, container_rootfs]:
         os.makedirs(directory, exist_ok=True)
 
-    # Mount the overlay filesystem
+    # Prepare the mount options for the overlay filesystem
     mount_options = f"lowerdir={image_root},upperdir={container_cow_rw},workdir={container_cow_workdir}"
+    # Mount the overlay filesystem at the container's root filesystem path
     linux.mount('overlay', container_rootfs, 'overlay', linux.MS_NODEV, mount_options)
 
+    # Return the path to the mounted root filesystem of the container
     return container_rootfs
 
 
@@ -125,7 +148,16 @@ def cli():
     Command-line interface for managing containers with BantuBox.
 
     This CLI provides commands for running, stopping, listing, and deleting containers.
+    
+    The `@click.group()` decorator transforms this function into a Click group, 
+    which acts as the entry point for a set of subcommands. This is akin to creating 
+    a command with multiple actions, like `git push`, `git pull`, etc., where `git` 
+    would be the group and `push`, `pull` are its subcommands.
     """
+    # The 'pass' statement is used here because this function is not meant to 
+    # execute any code itself. Instead, it serves as a holder for the group of 
+    # commands that will be attached to it. These commands are defined as separate 
+    # functions and are linked to this group through decorators.
     pass
 
 
@@ -139,31 +171,38 @@ def makedev(dev_path):
     Raises:
     - OSError: If symlink or device creation fails.
     """
+
+    # Standard file descriptors (stdin, stdout, stderr) are created as symlinks
+    # to corresponding file descriptors of the host process.
     std_fds = ['stdin', 'stdout', 'stderr']
     for i, dev in enumerate(std_fds):
-        fd_path = os.path.join('/proc/self/fd', str(i))
-        dev_symlink = os.path.join(dev_path, dev)
+        fd_path = os.path.join('/proc/self/fd', str(i))  # Path to the host's file descriptor
+        dev_symlink = os.path.join(dev_path, dev)  # Path for the symlink in the container's /dev directory
         try:
-            if not os.path.exists(dev_symlink):
-                os.symlink(fd_path, dev_symlink)
+            if not os.path.exists(dev_symlink):  # Check if symlink already exists
+                os.symlink(fd_path, dev_symlink)  # Create a symlink to the host's file descriptor
         except OSError as e:
-            raise OSError(f"Failed to create symlink for {dev}: {e}")
+            raise OSError(f"Failed to create symlink for {dev}: {e}")  # Raise error if symlink creation fails
 
-    # Create additional devices
+    # Creating additional device nodes.
+    # These devices include /dev/null, /dev/zero, etc., which are commonly required in a Linux environment.
     DEVICES = {
-        'null': (stat.S_IFCHR, 1, 3), 'zero': (stat.S_IFCHR, 1, 5),
-        'random': (stat.S_IFCHR, 1, 8), 'urandom': (stat.S_IFCHR, 1, 9),
-        'console': (stat.S_IFCHR, 136, 1), 'tty': (stat.S_IFCHR, 5, 0),
+        'null': (stat.S_IFCHR, 1, 3),  # Character device, Major number 1, Minor number 3
+        'zero': (stat.S_IFCHR, 1, 5),
+        'random': (stat.S_IFCHR, 1, 8),
+        'urandom': (stat.S_IFCHR, 1, 9),
+        'console': (stat.S_IFCHR, 136, 1),
+        'tty': (stat.S_IFCHR, 5, 0),
         'full': (stat.S_IFCHR, 1, 7)
     }
 
     for device, (dev_type, major, minor) in DEVICES.items():
-        device_path = os.path.join(dev_path, device)
+        device_path = os.path.join(dev_path, device)  # Path for the device node in the container's /dev directory
         try:
-            if not os.path.exists(device_path):
-                os.mknod(device_path, 0o666 | dev_type, os.makedev(major, minor))
+            if not os.path.exists(device_path):  # Check if device node already exists
+                os.mknod(device_path, 0o666 | dev_type, os.makedev(major, minor))  # Create the device node
         except OSError as e:
-            raise OSError(f"Failed to create device {device}: {e}")
+            raise OSError(f"Failed to create device {device}: {e}")  # Raise error if device node creation fails
 
 
 def _create_mounts(new_root):
@@ -177,29 +216,34 @@ def _create_mounts(new_root):
     - OSError: If an error occurs during the mount operations.
     """
     try:
-        # Mount the 'proc' filesystem
+        # Mount the 'proc' filesystem at /proc.
+        # This is essential for processes within the container to access process information.
         proc_path = os.path.join(new_root, 'proc')
         linux.mount('proc', proc_path, 'proc', 0, '')
 
-        # Mount the 'sysfs' filesystem
+        # Mount the 'sysfs' filesystem at /sys.
+        # This provides information about kernel and connected devices.
         sysfs_path = os.path.join(new_root, 'sys')
         linux.mount('sysfs', sysfs_path, 'sysfs', 0, '')
 
-        # Mount the 'tmpfs' filesystem on /dev
+        # Mount a 'tmpfs' filesystem at /dev.
+        # This is a temporary file storage used for creating device files.
         dev_path = os.path.join(new_root, 'dev')
         linux.mount('tmpfs', dev_path, 'tmpfs', linux.MS_NOSUID | linux.MS_STRICTATIME, 'mode=755')
 
-        # Mount the 'devpts' filesystem to enable PTYs
+        # Mount the 'devpts' filesystem to enable pseudo-terminal devices (PTYs).
+        # Necessary for terminal emulation within the container.
         devpts_path = os.path.join(dev_path, 'pts')
         if not os.path.exists(devpts_path):
-            os.makedirs(devpts_path)
+            os.makedirs(devpts_path)  # Create the directory if it doesn't exist.
         linux.mount('devpts', devpts_path, 'devpts', 0, '')
 
-        # Create basic device nodes in /dev
+        # Call makedev function to create essential device nodes in /dev.
         makedev(dev_path)
 
     except OSError as e:
-        raise OSError(f"Failed to create mounts: {e}")
+        raise OSError(f"Failed to create mounts: {e}")  # Handle exceptions during mount operations.
+
 
 
 def _setup_cpu_cgroup(container_id, cpu_shares):
@@ -213,28 +257,36 @@ def _setup_cpu_cgroup(container_id, cpu_shares):
     Raises:
     - OSError: If cgroup directory creation or file operation fails.
     """
+    # Define the base directory for CPU cgroups
     CPU_CGROUP_BASEDIR = '/sys/fs/cgroup/cpu'
+    
+    # Construct the path for the container's specific CPU cgroup directory
     container_cpu_cgroup_dir = os.path.join(CPU_CGROUP_BASEDIR, 'bantubox', container_id)
 
-    # Create the cgroup directory for the container if it doesn't exist
+    # Check if the container's CPU cgroup directory exists, create it if not
     if not os.path.exists(container_cpu_cgroup_dir):
         os.makedirs(container_cpu_cgroup_dir)
 
-    # Write the container's process ID to the 'tasks' file
+    # Path for the 'tasks' file within the CPU cgroup directory
     tasks_file = os.path.join(container_cpu_cgroup_dir, 'tasks')
     try:
+        # Open the 'tasks' file and write the current process ID (PID)
         with open(tasks_file, 'w') as file:
             file.write(str(os.getpid()))
     except OSError as e:
+        # Handle any exceptions related to file operations
         raise OSError(f"Failed to write to tasks file: {e}")
 
-    # Set the CPU shares for the container if cpu_shares is specified
+    # Check if cpu_shares is specified (non-zero) and set CPU shares for the container
     if cpu_shares:
+        # Path for the 'cpu.shares' file within the CPU cgroup directory
         cpu_shares_file = os.path.join(container_cpu_cgroup_dir, 'cpu.shares')
         try:
+            # Open the 'cpu.shares' file and write the specified CPU shares
             with open(cpu_shares_file, 'w') as file:
                 file.write(str(cpu_shares))
         except OSError as e:
+            # Handle any exceptions related to file operations
             raise OSError(f"Failed to set cpu shares: {e}")
 
 
@@ -256,47 +308,47 @@ def contain(command, image_name, image_dir, container_id, container_dir, cpu_sha
     - OSError: If an error occurs in setting up the container environment.
     """
     try:
-        # Set up CPU cgroup
+        # Set up the CPU cgroup for resource allocation
         _setup_cpu_cgroup(container_id, cpu_shares)
 
-        # Change hostname to container_id
+        # Set the hostname of the container to its unique ID
         linux.sethostname(container_id)
 
-        # Make all mounts private
+        # Make all mounts in the current namespace private
         linux.mount(None, '/', None, linux.MS_PRIVATE | linux.MS_REC, None)
 
-        # Create a new root filesystem for the container
+        # Create a new filesystem root for the container
         new_root = create_container_root(image_name, image_dir, container_id, container_dir)
-        # print(f'Created a new rootfs for our container: {new_root}')
 
-        # Create necessary mounts within the new root
+        # Set up necessary filesystem mounts within the new root
         _create_mounts(new_root)
+
+        # Change the working directory to the new root
         os.chdir(new_root)
 
-        # Change the root of the filesystem to the new root
+        # Prepare for changing the root filesystem
         old_root = os.path.join(new_root, 'old_root')
         if not os.path.exists(old_root):
+            # Create a directory for the old root if it doesn't exist
             os.makedirs(old_root)
-        
+
+        # Perform the pivot_root operation
         linux.pivot_root(new_root, old_root)
 
+        # Change the current working directory to the new root
         os.chdir('/')
 
-        # Unmount and remove the old root directory
+        # Unmount and attempt to remove the old root directory
         linux.umount2('/old_root', linux.MNT_DETACH)
-        # print(old_root)
-
-        # Check if old_root is empty before attempting to remove it
         if os.path.exists(old_root) and not os.listdir(old_root):
+            # Remove the old root directory if it's empty
             os.rmdir(old_root)
-        else:
-            # print(f"Warning: Unable to remove {old_root}. It may still be in use.")
-            print()
 
-        # Execute the command within the container
+        # Execute the specified command within the container environment
         os.execvp(command[0], command)
 
     except OSError as e:
+        # Handle any exceptions that occur during container setup
         print(f"Error in container setup: {e}")
         raise
 
@@ -354,6 +406,7 @@ def stop(container_id):
             _stop_single_container(cid, container_dir)
         except Exception as e:
             print(f"Error stopping container {cid}: {e}")
+
 
 def _stop_single_container(cid, container_dir):
     """
@@ -419,6 +472,7 @@ def delete(container_id):
             print(f"Container {cid} deleted.")
         except Exception as e:
             print(f"Error deleting container {cid}: {e}")
+
 
 def _delete_single_container(cid, container_dir):
     """
