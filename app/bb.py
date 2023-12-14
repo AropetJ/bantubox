@@ -77,13 +77,13 @@ def _get_container_path(container_id, container_dir, *subdir_names):
 
 def create_container_root(image_name, image_dir, container_id, container_dir):
     """
-    Create a root directory for a container and extract the image into it.
+    Create a root directory for a container and set up its filesystem.
 
     Args:
     - image_name (str): Name of the container image.
-    - image_dir (str): Directory where the container images are stored.
+    - image_dir (str): Directory where container images are stored.
     - container_id (str): Unique identifier for the container.
-    - container_dir (str): Directory to store container-related files.
+    - container_dir (str): Directory for storing container-related files.
 
     Returns:
     - str: Path to the container's root filesystem.
@@ -93,54 +93,30 @@ def create_container_root(image_name, image_dir, container_id, container_dir):
     - OSError: If directory creation or file extraction fails.
     """
     image_path = _get_image_path(image_name, image_dir)
-
-    if not os.path.exists(image_path):
-        raise FileNotFoundError(f"Unable to locate image '{image_name}' at '{image_path}'")
-
     image_root = os.path.join(image_dir, image_name, 'rootfs')
 
-    try:
-        if not os.path.exists(image_root):
-            os.makedirs(image_root)
+    if not os.path.exists(image_path):
+        raise FileNotFoundError(f"Unable to locate image {image_name}")
 
-            with tarfile.open(image_path) as tar_file:
-                filtered_members = [m for m in tar_file.getmembers() if m.type not in (tarfile.CHRTYPE, tarfile.BLKTYPE)]
-                tar_file.extractall(image_root, members=filtered_members)
-    except OSError as e:
-        raise OSError(f"Error creating directory or extracting files: {e}")
+    if not os.path.exists(image_root):
+        os.makedirs(image_root)
+        with tarfile.open(image_path) as tar:
+            members = [m for m in tar.getmembers() if m.type not in (tarfile.CHRTYPE, tarfile.BLKTYPE)]
+            tar.extractall(image_root, members=members)
 
-    return _setup_container_directories(container_id, container_dir, image_root)
+    # Create directories for copy-on-write, overlay workdir, and a mount point
+    container_cow_rw = _get_container_path(container_id, container_dir, 'cow_rw')
+    container_cow_workdir = _get_container_path(container_id, container_dir, 'cow_workdir')
+    container_rootfs = _get_container_path(container_id, container_dir, 'rootfs')
 
-# Helper function for setting up container directories
-def _setup_container_directories(container_id, container_dir, image_root):
-    """
-    Setup directories for container operation such as copy-on-write and mount points.
+    for directory in [container_cow_rw, container_cow_workdir, container_rootfs]:
+        os.makedirs(directory, exist_ok=True)
 
-    Args:
-    - container_id (str): Unique identifier for the container.
-    - container_dir (str): Base directory for storing container data.
-    - image_root (str): Path to the root filesystem of the image.
+    # Mount the overlay filesystem
+    mount_options = f"lowerdir={image_root},upperdir={container_cow_rw},workdir={container_cow_workdir}"
+    linux.mount('overlay', container_rootfs, 'overlay', linux.MS_NODEV, mount_options)
 
-    Returns:
-    - str: Path to the container's root filesystem.
-    """
-    dirs = {
-        'cow_rw': 'cow_rw',
-        'cow_workdir': 'cow_workdir',
-        'rootfs': 'rootfs'
-    }
-
-    for key, subdir in dirs.items():
-        dir_path = _get_container_path(container_id, container_dir, subdir)
-        if not os.path.exists(dir_path):
-            os.makedirs(dir_path)
-        dirs[key] = dir_path
-
-    linux.mount(
-        'overlay', dirs['rootfs'], 'overlay', linux.MS_NODEV,
-        f"lowerdir={image_root},upperdir={dirs['cow_rw']},workdir={dirs['cow_workdir']}")
-
-    return dirs['rootfs']
+    return container_rootfs
 
 
 @click.group()
@@ -192,95 +168,79 @@ def makedev(dev_path):
 
 def _create_mounts(new_root):
     """
-    Create and mount necessary filesystems within the container's root.
+    Create essential filesystem mounts in the container's new root.
 
     Args:
     - new_root (str): Path to the container's new root filesystem.
-
+    
     Raises:
-    - OSError: If directory creation or mount operation fails.
+    - OSError: If an error occurs during the mount operations.
     """
-    dirs_to_create = ['proc', 'sys', 'dev', 'dev/pts']
-
-    for dir_name in dirs_to_create:
-        full_path = os.path.join(new_root, dir_name)
-        try:
-            if not os.path.exists(full_path):
-                os.makedirs(full_path)
-        except OSError as e:
-            raise OSError(f"Failed to create directory {dir_name}: {e}")
-
     try:
-        linux.mount('proc', os.path.join(new_root, 'proc'), 'proc', 0, '')
-        linux.mount('sysfs', os.path.join(new_root, 'sys'), 'sysfs', 0, '')
-        linux.mount('tmpfs', os.path.join(new_root, 'dev'), 'tmpfs', linux.MS_NOSUID | linux.MS_STRICTATIME, 'mode=755')
-        makedev(os.path.join(new_root, 'dev'))
+        # Mount the 'proc' filesystem
+        proc_path = os.path.join(new_root, 'proc')
+        linux.mount('proc', proc_path, 'proc', 0, '')
 
-        devpts_path = os.path.join(new_root, 'dev', 'pts')
+        # Mount the 'sysfs' filesystem
+        sysfs_path = os.path.join(new_root, 'sys')
+        linux.mount('sysfs', sysfs_path, 'sysfs', 0, '')
+
+        # Mount the 'tmpfs' filesystem on /dev
+        dev_path = os.path.join(new_root, 'dev')
+        linux.mount('tmpfs', dev_path, 'tmpfs', linux.MS_NOSUID | linux.MS_STRICTATIME, 'mode=755')
+
+        # Mount the 'devpts' filesystem to enable PTYs
+        devpts_path = os.path.join(dev_path, 'pts')
         if not os.path.exists(devpts_path):
             os.makedirs(devpts_path)
         linux.mount('devpts', devpts_path, 'devpts', 0, '')
+
+        # Create basic device nodes in /dev
+        makedev(dev_path)
+
     except OSError as e:
-        raise OSError(f"Failed to mount filesystems: {e}")
+        raise OSError(f"Failed to create mounts: {e}")
 
 
-def _setup_cpu_cgroup(container_id, container_dir, cpu_shares):
+def _setup_cpu_cgroup(container_id, cpu_shares):
     """
     Setup a CPU cgroup for the container.
 
     Args:
     - container_id (str): Unique identifier for the container.
-    - container_dir (str): Directory to store container-related files.
     - cpu_shares (int): CPU shares (relative weight) for the container.
-
-    Returns:
-    - str: Path to the container's CPU cgroup directory.
 
     Raises:
     - OSError: If cgroup directory creation or file operation fails.
     """
-    # Define the base directory for cgroups
-    CPU_CGROUP_BASEDIR = '/sys/fs/cgroup'
-
-    # Construct the path to the container's specific cgroup directory
+    CPU_CGROUP_BASEDIR = '/sys/fs/cgroup/cpu'
     container_cpu_cgroup_dir = os.path.join(CPU_CGROUP_BASEDIR, 'bantubox', container_id)
 
+    # Create the cgroup directory for the container if it doesn't exist
+    if not os.path.exists(container_cpu_cgroup_dir):
+        os.makedirs(container_cpu_cgroup_dir)
+
+    # Write the container's process ID to the 'tasks' file
+    tasks_file = os.path.join(container_cpu_cgroup_dir, 'tasks')
     try:
-        # Create the cgroup directory for the container if it doesn't exist
-        if not os.path.exists(container_cpu_cgroup_dir):
-            os.makedirs(container_cpu_cgroup_dir, mode=0o755)
-
-        # Write the container's process ID to the cgroup.procs file
-        cgroup_procs_file = os.path.join(container_cpu_cgroup_dir, 'cgroup.procs')
-        with open(cgroup_procs_file, 'w') as procs_file:
-            procs_file.write(str(os.getpid()))
-
-        # Set the CPU shares/weight for the container
-        cpu_weight_file = os.path.join(container_cpu_cgroup_dir, 'cpu.weight' if is_cgroup_v2() else 'cpu.shares')
-        with open(cpu_weight_file, 'w') as weight_file:
-            weight = int(cpu_shares * 100) if is_cgroup_v2() else cpu_shares
-            weight_file.write(str(max(1, weight)))  # Ensure weight is at least 1
-    except PermissionError as e:
-        raise PermissionError(f"Permission denied. You might need to run the script as root or adjust cgroup permissions: {e}")
+        with open(tasks_file, 'w') as file:
+            file.write(str(os.getpid()))
     except OSError as e:
-        raise OSError(f"Failed to setup CPU cgroup: {e}")
+        raise OSError(f"Failed to write to tasks file: {e}")
 
-    return container_cpu_cgroup_dir
+    # Set the CPU shares for the container if cpu_shares is specified
+    if cpu_shares:
+        cpu_shares_file = os.path.join(container_cpu_cgroup_dir, 'cpu.shares')
+        try:
+            with open(cpu_shares_file, 'w') as file:
+                file.write(str(cpu_shares))
+        except OSError as e:
+            raise OSError(f"Failed to set cpu shares: {e}")
 
-def is_cgroup_v2():
+
+def contain(command, image_name, image_dir, container_id, container_dir, cpu_shares, memory, memory_swap):
     """
-    Check if the system uses cgroup v2.
-
-    Returns:
-    - bool: True if cgroup v2 is used, False otherwise.
-    """
-    with open('/sys/fs/cgroup/cgroup.controllers') as f:
-        return bool(f.read().strip())
-
-
-def contain(command, image_name, image_dir, container_id, container_dir, cpu_shares):
-    """
-    Setup and execute the container environment.
+    Set up and execute the container environment.
 
     Args:
     - command (list): Command to be executed in the container.
@@ -289,111 +249,93 @@ def contain(command, image_name, image_dir, container_id, container_dir, cpu_sha
     - container_id (str): Unique identifier for the container.
     - container_dir (str): Directory for storing container data.
     - cpu_shares (int): CPU shares for the container's cgroup.
+    - memory (int): Memory limit in bytes.
+    - memory_swap (int): Total limit for the combined used memory and swap.
 
     Raises:
     - OSError: If an error occurs in setting up the container environment.
     """
     try:
-        _setup_container_environment(container_id)
+        # Set up CPU cgroup
+        _setup_cpu_cgroup(container_id, cpu_shares)
+
+        # Change hostname to container_id
+        linux.sethostname(container_id)
+
+        # Make all mounts private
+        linux.mount(None, '/', None, linux.MS_PRIVATE | linux.MS_REC, None)
+
+        # Create a new root filesystem for the container
         new_root = create_container_root(image_name, image_dir, container_id, container_dir)
-        print(f'Created a new root fs for our container: {new_root}')
-        container_cpu_cgroup_dir = _setup_cpu_cgroup(container_id, container_dir, cpu_shares)
+        # print(f'Created a new rootfs for our container: {new_root}')
+
+        # Create necessary mounts within the new root
         _create_mounts(new_root)
-        _change_root(new_root)
-        _execute_command(command, container_cpu_cgroup_dir)
+        os.chdir(new_root)
+
+        # Change the root of the filesystem to the new root
+        old_root = os.path.join(new_root, 'old_root')
+        if not os.path.exists(old_root):
+            os.makedirs(old_root)
+        
+        linux.pivot_root(new_root, old_root)
+
+        os.chdir('/')
+
+        # Unmount and remove the old root directory
+        linux.umount2('/old_root', linux.MNT_DETACH)
+        # print(old_root)
+
+        # Check if old_root is empty before attempting to remove it
+        if os.path.exists(old_root) and not os.listdir(old_root):
+            os.rmdir(old_root)
+        else:
+            # print(f"Warning: Unable to remove {old_root}. It may still be in use.")
+            print()
+
+        # Execute the command within the container
+        os.execvp(command[0], command)
+
     except OSError as e:
         print(f"Error in container setup: {e}")
         raise
 
-def _setup_container_environment(container_id):
-    """
-    Set hostname and mount flags for the container.
 
-    Args:
-    - container_id (str): Unique identifier for the container.
-
-    Raises:
-    - OSError: If an error occurs in setting hostname or mount flags.
-    """
-    linux.sethostname(container_id)
-    linux.mount(None, '/', None, linux.MS_PRIVATE | linux.MS_REC, None)
-
-def _change_root(new_root):
-    """
-    Change the root filesystem for the container process.
-
-    Args:
-    - new_root (str): Path to the new root filesystem.
-
-    Raises:
-    - OSError: If changing the root filesystem fails.
-    """
-    old_root = os.path.join(new_root, 'old_root')
-    os.makedirs(old_root, exist_ok=True)
-    linux.pivot_root(new_root, old_root)
-    os.chdir('/')
-    linux.umount2('/old_root', linux.MNT_DETACH)
-    os.rmdir('/old_root')
-
-def _execute_command(command, container_cpu_cgroup_dir):
-    """
-    Execute the given command in the container and read the CPU shares.
-
-    Args:
-    - command (list): Command to be executed.
-    - container_cpu_cgroup_dir (str): Path to the container's CPU cgroup directory.
-
-    Raises:
-    - FileNotFoundError: If the CPU shares file does not exist.
-    - OSError: If an error occurs in executing the command.
-    """
-    try:
-        cpu_shares_path = os.path.join(container_cpu_cgroup_dir, 'cpu.weight')  # Adjusted to 'cpu.weight'
-        if not os.path.exists(cpu_shares_path):
-            raise FileNotFoundError(f"CPU shares file not found at '{cpu_shares_path}'")
-        
-        with open(cpu_shares_path, 'r') as shares_file:
-            container_cpu_shares = int(shares_file.read())
-            # Use container_cpu_shares as needed
-    except FileNotFoundError as e:
-        print(e)
-        raise
-
-    os.execvp(command[0], command)
-
-
-@cli.command(context_settings=dict(ignore_unknown_options=True))
-@click.option('--memory', help='Memory limit in bytes. Use suffixes for larger units (k, m, g)', default=None)
-@click.option('--memory-swap', help='Swap limit. -1 for unlimited swap.', default=None)
+@cli.command(context_settings={'ignore_unknown_options': True})
+@click.option('--memory', help='Memory limit in bytes. Use suffixes (k, m, g) for larger units.', default=None)
+@click.option('--memory-swap', help='Total memory plus swap limit. Specify -1 for unlimited swap.', default=None)
 @click.option('--cpu-shares', help='CPU shares (relative weight)', default=0)
 @click.option('--image-name', '-i', help='Image name', default='ubuntu')
-@click.option('--image-dir', help='Image directory', default=IMAGE_DIR)
-@click.option('--container-dir', help='Container directory', default=CONTAINER_DIR)
+@click.option('--image-dir', help='Images directory', default=IMAGE_DIR)
+@click.option('--container-dir', help='Containers directory', default=CONTAINER_DIR)
 @click.argument('command', required=True, nargs=-1)
 def run(memory, memory_swap, cpu_shares, image_name, image_dir, container_dir, command):
     """
     Run a command in a new container.
 
     Args:
-    - memory, memory_swap, cpu_shares: Resource limits for the container.
+    - memory (str): Memory limit in bytes.
+    - memory_swap (str): Total memory plus swap limit.
+    - cpu_shares (int): CPU shares for the container.
     - image_name (str): Name of the container image.
     - image_dir (str): Directory where container images are stored.
     - container_dir (str): Directory for storing container data.
-    - command (list): Command to be executed in the container.
+    - command (tuple): Command to be executed in the container.
     """
     container_id = str(uuid.uuid4())
+
+    # Flags for namespaces to be created for the new container process
     flags = linux.CLONE_NEWPID | linux.CLONE_NEWNS | linux.CLONE_NEWUTS | linux.CLONE_NEWNET
 
-    # Prepare the arguments for the contain function
-    callback_args = (command, image_name, image_dir, container_id, container_dir, cpu_shares)
+    # Arguments for the container setup callback function
+    callback_args = (command, image_name, image_dir, container_id, container_dir, cpu_shares, memory, memory_swap)
 
-    try:
-        # Call the contain function in a new process
-        pid = linux.clone(contain, flags, callback_args)
-        # Wait for the process to complete
-        os.waitpid(pid, 0)
-    except Exception as e:
-        print(f"Error running container: {e}")
+    # Create a new process for the container
+    pid = linux.clone(contain, flags, callback_args)
+
+    # Wait for the container process to complete and fetch its exit status
+    _, status = os.waitpid(pid, 0)
+    print(f'Container process {pid} exited with status {status}')
 
 
 @cli.command(context_settings=dict(ignore_unknown_options=True))
