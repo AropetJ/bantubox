@@ -239,30 +239,43 @@ def _setup_cpu_cgroup(container_id, container_dir, cpu_shares):
     Raises:
     - OSError: If cgroup directory creation or file operation fails.
     """
+    # Define the base directory for cgroups
     CPU_CGROUP_BASEDIR = '/sys/fs/cgroup'
+
+    # Construct the path to the container's specific cgroup directory
     container_cpu_cgroup_dir = os.path.join(CPU_CGROUP_BASEDIR, 'bantubox', container_id)
 
     try:
+        # Create the cgroup directory for the container if it doesn't exist
         if not os.path.exists(container_cpu_cgroup_dir):
             os.makedirs(container_cpu_cgroup_dir, mode=0o755)
 
+        # Write the container's process ID to the cgroup.procs file
         cgroup_procs_file = os.path.join(container_cpu_cgroup_dir, 'cgroup.procs')
         with open(cgroup_procs_file, 'w') as procs_file:
             procs_file.write(str(os.getpid()))
 
-        pid_file_path = os.path.join(container_dir, container_id, 'pid.txt')
-        with open(pid_file_path, 'w') as pid_file:
-            pid_file.write(str(os.getpid()))
-
-        if cpu_shares:
-            cpu_weight_file = os.path.join(container_cpu_cgroup_dir, 'cpu.weight')
-            weight = int(cpu_shares * 100)  # CPU share to weight conversion
-            with open(cpu_weight_file, 'w') as weight_file:
-                weight_file.write(str(weight))
+        # Set the CPU shares/weight for the container
+        cpu_weight_file = os.path.join(container_cpu_cgroup_dir, 'cpu.weight' if is_cgroup_v2() else 'cpu.shares')
+        with open(cpu_weight_file, 'w') as weight_file:
+            weight = int(cpu_shares * 100) if is_cgroup_v2() else cpu_shares
+            weight_file.write(str(max(1, weight)))  # Ensure weight is at least 1
+    except PermissionError as e:
+        raise PermissionError(f"Permission denied. You might need to run the script as root or adjust cgroup permissions: {e}")
     except OSError as e:
         raise OSError(f"Failed to setup CPU cgroup: {e}")
 
     return container_cpu_cgroup_dir
+
+def is_cgroup_v2():
+    """
+    Check if the system uses cgroup v2.
+
+    Returns:
+    - bool: True if cgroup v2 is used, False otherwise.
+    """
+    with open('/sys/fs/cgroup/cgroup.controllers') as f:
+        return bool(f.read().strip())
 
 
 def contain(command, image_name, image_dir, container_id, container_dir, cpu_shares):
@@ -335,12 +348,15 @@ def _execute_command(command, container_cpu_cgroup_dir):
     - OSError: If an error occurs in executing the command.
     """
     try:
-        cpu_shares_file = os.path.join(container_cpu_cgroup_dir, 'cpu.shares')
-        with open(cpu_shares_file, 'r') as shares_file:
+        cpu_shares_path = os.path.join(container_cpu_cgroup_dir, 'cpu.weight')  # Adjusted to 'cpu.weight'
+        if not os.path.exists(cpu_shares_path):
+            raise FileNotFoundError(f"CPU shares file not found at '{cpu_shares_path}'")
+        
+        with open(cpu_shares_path, 'r') as shares_file:
             container_cpu_shares = int(shares_file.read())
             # Use container_cpu_shares as needed
-    except FileNotFoundError:
-        print("CPU shares file not found.")
+    except FileNotFoundError as e:
+        print(e)
         raise
 
     os.execvp(command[0], command)
@@ -350,7 +366,7 @@ def _execute_command(command, container_cpu_cgroup_dir):
 @click.option('--memory', help='Memory limit in bytes. Use suffixes for larger units (k, m, g)', default=None)
 @click.option('--memory-swap', help='Swap limit. -1 for unlimited swap.', default=None)
 @click.option('--cpu-shares', help='CPU shares (relative weight)', default=0)
-@click.option('--image-name', '-i', help='image name', default='ubuntu')
+@click.option('--image-name', '-i', help='Image name', default='ubuntu')
 @click.option('--image-dir', help='Image directory', default=IMAGE_DIR)
 @click.option('--container-dir', help='Container directory', default=CONTAINER_DIR)
 @click.argument('command', required=True, nargs=-1)
@@ -367,10 +383,14 @@ def run(memory, memory_swap, cpu_shares, image_name, image_dir, container_dir, c
     """
     container_id = str(uuid.uuid4())
     flags = linux.CLONE_NEWPID | linux.CLONE_NEWNS | linux.CLONE_NEWUTS | linux.CLONE_NEWNET
-    callback_args = (command, image_name, image_dir, container_id, container_dir, cpu_shares, memory, memory_swap)
+
+    # Prepare the arguments for the contain function
+    callback_args = (command, image_name, image_dir, container_id, container_dir, cpu_shares)
 
     try:
+        # Call the contain function in a new process
         pid = linux.clone(contain, flags, callback_args)
+        # Wait for the process to complete
         os.waitpid(pid, 0)
     except Exception as e:
         print(f"Error running container: {e}")
