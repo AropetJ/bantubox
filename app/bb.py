@@ -1,10 +1,22 @@
 #!/home/aropet/bantubox/bb3venv/bin/python3
 
 """
-BantuBox - A simple docker like application for running linux containers
+BantuBox: A Lightweight Container Management Tool
+
+This script provides functionality similar to Docker, allowing users to create, run,
+and manage Linux containers with ease. BantuBox is designed to be simple and
+straightforward, making it suitable for both educational purposes and practical usage.
+
 Usage:
-    running:
-        sudo ./bb.py run <commad> <options>
+  To run a container:
+    sudo ./bb.py run --image-name <image_name> --command <command> [options]
+
+  For more information on available options, use:
+    sudo ./bb.py --help
+
+Examples:
+  sudo ./bb.py run --image-name ubuntu --command /bin/bash
+  sudo ./bb.py run --image-name alpine --command /bin/echo 'Hello, World!'
 """
 
 # Global Constants
