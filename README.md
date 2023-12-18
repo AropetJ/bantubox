@@ -19,8 +19,8 @@ BantuBox is a simplified and educational exploration of containerization technol
 To install BantuBox, follow these steps:
 
 ```bash
-  git clone [Repository URL]
-  cd BantuBox
+  git clone <Repository URL>
+  cd bantubox/app
   chmod +x bb.py
 ```
 
@@ -39,7 +39,6 @@ sudo ./bb.py run <command> <options>
 sudo ./bb.py run -i ubuntu /bin/bash
 
 # Other commands in the future will include:
-
 stop to stop a running container
 list to list available containers
 delete to delete a container by id
