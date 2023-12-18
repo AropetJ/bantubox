@@ -4,31 +4,6 @@
 ## Introduction
 BantuBox is a simplified and educational exploration of containerization technology, presenting a user-friendly alternative to Docker. Developed entirely in Python, the implementation leverages kernel Namespaces, cgroups, and network namespaces specific to Linux. To overcome the limitations of the python os module for Linux system calls, we enhance functionality by creating wrappers using the C language, which are then imported as modules in our project. The project's focus is not to replicate Docker comprehensively but rather to establish a foundational model that adequately elucidates the fundamental principles of container technology.
 
-## Color Reference
-
-| Color             | Hex                                                                |
-| ----------------- | ------------------------------------------------------------------ |
-| Example Color | #092635 |
-| Example Color | #1B4242 |
-| Example Color | #5C8374 |
-| Example Color | #9EC8B9 |
-
-
-## Acknowledgements
-
-- ALX for giving me the platform and structure to learn and become a better software engineer.
-- My peers and community members for their support and contributions.
-
-
-## Contributing
-
-Contributions to BantuBox are welcome. Please follow these steps to contribute:
-- Fork the repository.
-- Create a new branch for your feature.
-- Commit your changes.
-- Push to the branch.
-- Submit a pull request.
-
 
 ## Features
 
@@ -48,7 +23,8 @@ To install BantuBox, follow these steps:
   cd BantuBox
   chmod +x bb.py
 ```
-    
+
+
 ## Usage/Examples
 
 ```bash
@@ -69,6 +45,7 @@ list to list available containers
 delete to delete a container by id
 ```
 
+
 ## Strategy
 
 We will want bantubox to have features closely similar to those from Docker, so I followed the following developmet steps:
@@ -83,3 +60,22 @@ We will want bantubox to have features closely similar to those from Docker, so 
 8. Followed by enabling networking tools like ps, ifconfig using the net namespace
 9. We then implement cgroups for resource utilization control
 10. Future features will include stopping and listing of available containers
+
+
+## Contributing
+
+Contributions to BantuBox are welcome. Please follow these steps to contribute:
+- Fork the repository.
+- Create a new branch for your feature.
+- Commit your changes.
+- Push to the branch.
+- Submit a pull request.
+
+## Acknowledgements
+
+- ALX for giving me the platform and structure to learn and become a better software engineer.
+- My peers and community members for their support and contributions.
+
+
+## Licensing
+This application is free to use for anyone who comes across it
