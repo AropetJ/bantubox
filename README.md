@@ -1,6 +1,7 @@
 
-# BantuBox
+## Title - BantuBox
 
+## Introduction
 BantuBox is a simplified and educational exploration of containerization technology, presenting a user-friendly alternative to Docker. Developed entirely in Python, the implementation leverages kernel Namespaces, cgroups, and network namespaces specific to Linux. To overcome the limitations of the python os module for Linux system calls, we enhance functionality by creating wrappers using the C language, which are then imported as modules in our project. The project's focus is not to replicate Docker comprehensively but rather to establish a foundational model that adequately elucidates the fundamental principles of container technology.
 
 ## Color Reference
@@ -50,13 +51,19 @@ To install BantuBox, follow these steps:
     
 ## Usage/Examples
 
-Run a command in a new container:
+# Mounting the bantubox cpu cgroup.
+The application creates the folder automatically in the default location in the example below
+
+```bash
+sudo mount -t tmpfs none /sys/fs/cgroup/cpu/bantubox
+
+# Run a command in a new container:
 
 ```bash
 sudo ./bb.py run <command> <options>
 
 For example:
-sudo ./bb.py run /bin/bash
+sudo ./bb.py run -i ubuntu /bin/bash
 
 Other commands in the future will include:
 
