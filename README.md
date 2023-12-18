@@ -51,24 +51,22 @@ To install BantuBox, follow these steps:
     
 ## Usage/Examples
 
-# Mounting the bantubox cpu cgroup.
-The application creates the folder automatically in the default location in the example below
-
 ```bash
+# Mount the bantubox cpu cgroup
+# Note: The program automatically creates the cgroup bantubox
 sudo mount -t tmpfs none /sys/fs/cgroup/cpu/bantubox
 
-# Run a command in a new container:
-
-```bash
+# Then run a command in a terminal window:
 sudo ./bb.py run <command> <options>
 
-For example:
+# For example:
 sudo ./bb.py run -i ubuntu /bin/bash
 
-Other commands in the future will include:
+# Other commands in the future will include:
 
 stop to stop a running container
 list to list available containers
+delete to delete a container by id
 ```
 
 ## Strategy
