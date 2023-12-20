@@ -38,9 +38,9 @@ source bb3venv/bin/activate
 sudo pip3 install -r requirements.txt
 
 # Installing the linux module
-setup.py file is already provided
+# setup.py file is already provided
 sudo python setup.py bdist_wheel
-sudo pip install dist/your_module_name-1.0-cp3x-cp3x-linux_x86_64.whl # replace the filename with the actual name of your wheel file
+sudo pip install dist/linux-1.0-cp3x-cp3x-linux_x86_64.whl # replace the filename with the actual name of your wheel file
 
 # Creating an image directory
 sudo apt-get install debootstrap # Install debootstrap
