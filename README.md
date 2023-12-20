@@ -25,13 +25,42 @@ To install BantuBox, follow these steps:
 ```
 
 
-## Usage/Examples
+## Environment and setup
 
 ```bash
+# Creating a virtual python3 environment
+python3 -m venv bb3venv
+
+# Activate the environment
+source bb3venv/bin/activate
+
+# Install other required packages in the requirements.txt file
+sudo pip3 install -r requirements.txt
+
+# Installing the linux module
+setup.py file is already provided
+sudo python setup.py bdist_wheel
+sudo pip install dist/your_module_name-1.0-cp3x-cp3x-linux_x86_64.whl # replace the filename with the actual name of your wheel file
+
+# Creating an image directory
+sudo apt-get install debootstrap # Install debootstrap
+mkdir /bantubox/images/ubuntu # Create a target directory for your minimal Ubuntu installation
+sudo debootstrap --variant=minbase focal /bantubox/images/ubuntu # Run debootstrap to install the base system, replace focal with any ubuntu image you want
+sudo chroot /bantubox/images/ubuntu # Chroot into the minimal system and add additional packages you want then exit
+sudo tar -cvf ubuntu.tar -C /bantubox/container/ubuntu # Create a tarball
+
+# Creating a container directory
+mkdir containers
+
 # Mount the bantubox cpu cgroup
 # Note: The program automatically creates the cgroup bantubox
 sudo mount -t tmpfs none /sys/fs/cgroup/cpu/bantubox
 
+```
+
+## Examples and Usage
+
+```bash
 # Then run a command in a terminal window:
 sudo ./bb.py run <command> <options>
 
