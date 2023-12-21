@@ -54,7 +54,7 @@ mkdir containers
 
 # Mount the bantubox cpu cgroup
 # Note: The program automatically creates the cgroup bantubox
-sudo mount -t tmpfs none /sys/fs/cgroup/cpu/bantubox
+sudo mount -t tmpfs none /sys/fs/cgroup/
 
 ```
 
